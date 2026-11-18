@@ -54,3 +54,20 @@ openbench run --config configs/mock_experiment.yaml
 # Execute using direct CLI flags
 openbench run   --dataset datasets/reasoning/sample.jsonl   --provider mock   --model mock-deterministic-v1   --concurrency 2   --timeout 15.0   --max-attempts 3
 ```
+
+---
+
+## 4. Managing the Response Cache
+
+`openbench run` stores every response in a local cache (`.openbench_cache` by default, or `--cache-dir`), so repeated runs do not call the model again. These commands manage it:
+
+```bash
+openbench cache stats                         # entry count and location
+openbench cache prune --older-than 30 --dry-run   # report what would be removed
+openbench cache prune --older-than 30         # remove entries cached more than 30 days ago
+openbench cache clear                         # remove everything
+```
+
+`--older-than DAYS` must be a positive integer. Each entry records when it was cached, and `prune` removes the entries older than the cut-off. Entries whose `cached_at` is missing or unreadable are never removed; the command reports how many it kept for that reason. `--dry-run` only reports and changes nothing. All three commands accept `--cache-dir`.
+
+`prune` takes the same cross-process lock as the run commands and swaps in the rewritten file in one step. If the cache file is corrupted, `prune` reports the first bad line and leaves the file untouched; use `openbench cache clear` to start over.

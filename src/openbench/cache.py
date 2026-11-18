@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,35 @@ class CacheRecord:
             payload["repeat_group_id"] = self.repeat_group_id
             payload["repetition_index"] = self.repetition_index
         return payload
+
+
+@dataclass(frozen=True)
+class PruneResult:
+    """Outcome of :meth:`ResponseCache.prune`.
+
+    ``removed`` entries were older than the cut-off (with ``dry_run`` they only *would* be
+    removed). ``kept`` entries are newer. ``unknown_age`` entries have a missing or unreadable
+    ``cached_at``; they are always kept and are not part of ``kept``.
+    """
+
+    removed: int
+    kept: int
+    unknown_age: int
+    dry_run: bool = False
+
+
+def _parse_cached_at(value: Any) -> datetime | None:
+    """Parse a ``cached_at`` timestamp; ``None`` when missing or unreadable. Naive means UTC."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
 def _check_repetition_context(context: tuple[str, int]) -> tuple[str, int]:
@@ -314,6 +344,61 @@ class ResponseCache:
                     if self._index_path.exists():
                         self._index_path.unlink()
             return count
+
+    def prune(self, older_than_days: int, dry_run: bool = False, now: datetime | None = None) -> PruneResult:
+        """Remove entries whose ``cached_at`` is more than ``older_than_days`` days before ``now``.
+
+        Entries with a missing or unreadable ``cached_at`` are kept and counted separately in
+        ``PruneResult.unknown_age``. With ``dry_run`` nothing is changed. Like ``put`` and
+        ``clear``, this holds the in-process and the cross-process file lock; the file is
+        rewritten to a temporary file and swapped in, so a failure never leaves a half-written
+        cache. An entry is judged by its last line, the one a load uses; earlier lines for the same
+        key are not counted, and are dropped whenever the file is rewritten. A corrupted cache file is reported and left untouched.
+        """
+        if isinstance(older_than_days, bool) or not isinstance(older_than_days, int) or older_than_days < 1:
+            raise OpenBenchError("older_than_days must be a positive integer")
+        reference = now or datetime.now(timezone.utc)
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
+        cutoff = reference - timedelta(days=older_than_days)
+        if not self._index_path.exists():
+            return PruneResult(0, 0, 0, dry_run)  # nothing to prune; do not create the directory
+        with self._lock, self._file_lock:
+            if not self._index_path.exists():
+                return PruneResult(0, 0, 0, dry_run)
+            text = self._index_path.read_text(encoding="utf-8")
+            latest: dict[str, tuple[int, str, Any]] = {}
+            for line_no, line in enumerate(text.splitlines(), start=1):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    data = json.loads(stripped)
+                    key = str(data["cache_key"])
+                except (json.JSONDecodeError, KeyError, TypeError) as exc:
+                    raise OpenBenchError(
+                        f"Corrupted cache file {self._index_path}: line {line_no} is not a valid cache "
+                        "entry. Nothing was pruned; clear the cache with 'openbench cache clear'."
+                    ) from exc
+                latest[key] = (line_no, stripped, data.get("cached_at"))
+            keep: list[str] = []
+            removed = kept = unknown = 0
+            for _, stripped, cached_at in sorted(latest.values()):
+                when = _parse_cached_at(cached_at)
+                if when is None:
+                    unknown += 1
+                elif when < cutoff:
+                    removed += 1
+                    continue
+                else:
+                    kept += 1
+                keep.append(stripped)
+            if removed and not dry_run:
+                tmp = self._index_path.with_suffix(".jsonl.tmp")
+                tmp.write_text("".join(f"{entry}\n" for entry in keep), encoding="utf-8")
+                os.replace(tmp, self._index_path)
+                self._memory_map = None
+            return PruneResult(removed, kept, unknown, dry_run)
 
     def stats(self) -> dict[str, Any]:
         """Return cache audit summary."""

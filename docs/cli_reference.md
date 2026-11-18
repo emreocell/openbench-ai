@@ -383,6 +383,16 @@ Clear all cached responses.
 | :--- | :---: | :--- | :--- | :--- |
 | `--cache-dir` |  |  |  |  |
 
+## `openbench cache prune`
+
+Remove cached responses older than a number of days.
+
+| Argument | Required | Default | Choices | Help |
+| :--- | :---: | :--- | :--- | :--- |
+| `--older-than` | yes |  |  | Remove entries cached more than DAYS days ago (a positive integer). |
+| `--dry-run` |  |  |  | Only report what would be removed. |
+| `--cache-dir` |  |  |  |  |
+
 ## `openbench cache stats`
 
 Show cache entry count and location.

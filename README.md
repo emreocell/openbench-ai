@@ -192,7 +192,7 @@ A complete runnable walkthrough using the mock provider is in [`examples/v040_wo
 | `validate-dataset`, `list-datasets`, `inspect-dataset`, `dataset-stats` | Dataset validation and exploration (`--quality-checks` adds the audit) |
 | `evaluate`, `compare`, `export`, `history list/show` | Evaluate response files, descriptive comparison, export, history |
 | `run`, `runs list/show/verify/resume/compare` | Provider execution, repeat groups, run management and integrity |
-| `providers list/check`, `cache stats/clear` | Providers and the response cache |
+| `providers list/check`, `cache stats/prune/clear` | Providers and the response cache |
 | `analyze` | v0.4.0 paired comparison or repeated-run variability of stored results |
 | `preferences create/validate/analyze` | v0.4.0 blinded pairwise human preference evaluation (`--compare-metric` in v0.5.0) |
 | `rank`, `plan` | v0.5.0 ranking with uncertainty; sample-size planning |

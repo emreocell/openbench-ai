@@ -670,6 +670,25 @@ def build_parser() -> argparse.ArgumentParser:
     cache_clear_p = cache_subparsers.add_parser("clear", help="Clear all cached responses.")
     cache_clear_p.add_argument("--cache-dir", type=str, default=None)
 
+    cache_prune_p = cache_subparsers.add_parser(
+        "prune",
+        help="Remove cached responses older than a number of days.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_examples(
+            "openbench cache prune --older-than 30 --dry-run",
+            "openbench cache prune --older-than 30 --cache-dir .openbench_cache",
+        ),
+    )
+    cache_prune_p.add_argument(
+        "--older-than",
+        type=_positive_int,
+        required=True,
+        metavar="DAYS",
+        help="Remove entries cached more than DAYS days ago (a positive integer).",
+    )
+    cache_prune_p.add_argument("--dry-run", action="store_true", help="Only report what would be removed.")
+    cache_prune_p.add_argument("--cache-dir", type=str, default=None)
+
     cache_stats_p = cache_subparsers.add_parser("stats", help="Show cache entry count and location.")
     cache_stats_p.add_argument("--cache-dir", type=str, default=None)
 
@@ -2099,6 +2118,16 @@ def _handle_providers(args: argparse.Namespace) -> int:
     return 2
 
 
+def _positive_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a positive integer") from None
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a positive integer")
+    return number
+
+
 def _write_or_print(text: str, output: str | None, label: str) -> None:
     from openbench.security import validate_safe_output_path
 
@@ -2456,15 +2485,28 @@ def _handle_plugins(args: argparse.Namespace) -> int:
 
 
 def _handle_cache(args: argparse.Namespace) -> int:
-    """Execute `openbench cache clear|stats`."""
+    """Execute `openbench cache clear|prune|stats`."""
     if not args.cache_action:
-        print("Error: Specify a cache subcommand ('clear' or 'stats').", file=sys.stderr)
+        print("Error: Specify a cache subcommand ('clear', 'prune' or 'stats').", file=sys.stderr)
         return 2
 
     cache = ResponseCache(cache_dir=getattr(args, "cache_dir", None), enabled=True)
     if args.cache_action == "clear":
         cleared = cache.clear()
         print(f"Cleared {cleared} cached response(s) from {cache.cache_dir}")
+        return 0
+    if args.cache_action == "prune":
+        try:
+            result = cache.prune(args.older_than, dry_run=args.dry_run)
+        except OpenBenchError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        verb = "Would remove" if result.dry_run else "Removed"
+        print(f"{verb} {result.removed} cached response(s) older than {args.older_than} day(s) from {cache.cache_dir}")
+        print(f"Kept {result.kept} newer entr{'y' if result.kept == 1 else 'ies'}.")
+        if result.unknown_age:
+            unit = "entry" if result.unknown_age == 1 else "entries"
+            print(f"Kept {result.unknown_age} {unit} with a missing or unreadable cached_at.")
         return 0
     if args.cache_action == "stats":
         print(json.dumps(cache.stats(), indent=2))

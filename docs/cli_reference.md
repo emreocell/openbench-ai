@@ -103,6 +103,17 @@ List or inspect local historical evaluation runs.
 | `--store` |  |  |  |  |
 | `--format` |  | `text` | `text`, `json` |  |
 
+## `openbench history compare`
+
+Show score changes between two recorded evaluations.
+
+| Argument | Required | Default | Choices | Help |
+| :--- | :---: | :--- | :--- | :--- |
+| `baseline_id` | yes |  |  |  |
+| `latest_id` | yes |  |  |  |
+| `--store` |  |  |  |  |
+| `--format` |  | `text` | `text`, `json`, `markdown` |  |
+
 ## `openbench export`
 
 Export an existing JSON evaluation or comparison result into CSV or Markdown.

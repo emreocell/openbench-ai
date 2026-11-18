@@ -285,6 +285,15 @@ def build_parser() -> argparse.ArgumentParser:
     hist_show_parser.add_argument("--store", type=str, default=None)
     hist_show_parser.add_argument("--format", choices=["text", "json"], default="text")
 
+    hist_compare_parser = history_subparsers.add_parser(
+        "compare",
+        help="Show score changes between two recorded evaluations.",
+    )
+    hist_compare_parser.add_argument("baseline_id", type=str)
+    hist_compare_parser.add_argument("latest_id", type=str)
+    hist_compare_parser.add_argument("--store", type=str, default=None)
+    hist_compare_parser.add_argument("--format", choices=["text", "json", "markdown"], default="text")
+
     # 8. export (v0.2.0 preserved)
     export_parser = subparsers.add_parser(
         "export",
@@ -1204,9 +1213,84 @@ def _print_history_export(entries: list[Any], *, output_format: str) -> None:
         print("| " + " | ".join(escape_markdown_cell(cell) for cell in row) + " |")
 
 
+_HISTORY_COMPARE_NOTE = (
+    "This is a descriptive difference between two recorded results, not a significance test. "
+    "Use `openbench analyze` for a paired comparison."
+)
+
+
+def _print_history_compare(baseline: Any, latest: Any, *, output_format: str) -> None:
+    shared = [m for m in baseline.result_summary if m in latest.result_summary]
+    rows = [
+        (
+            m,
+            baseline.result_summary[m],
+            latest.result_summary[m],
+            round(latest.result_summary[m] - baseline.result_summary[m], 6),
+        )
+        for m in shared
+    ]
+    only_baseline = {m: v for m, v in baseline.result_summary.items() if m not in latest.result_summary}
+    only_latest = {m: v for m, v in latest.result_summary.items() if m not in baseline.result_summary}
+
+    if output_format == "json":
+        payload = {
+            "baseline": baseline.to_dict(),
+            "latest": latest.to_dict(),
+            "metrics": [
+                {"metric": m, "baseline": b, "latest": n, "change": c} for m, b, n, c in rows
+            ],
+            "only_in_baseline": only_baseline,
+            "only_in_latest": only_latest,
+            "note": _HISTORY_COMPARE_NOTE,
+        }
+        print(json.dumps(payload, indent=2))
+        return
+
+    if output_format == "markdown":
+        print(f"# History comparison: {escape_markdown_cell(baseline.evaluation_id)} to "
+              f"{escape_markdown_cell(latest.evaluation_id)}")
+        print()
+        print(f"- Baseline: {escape_markdown_cell(baseline.evaluation_id)} "
+              f"({escape_markdown_cell(baseline.model_name)}, dataset {escape_markdown_cell(baseline.dataset_name)})")
+        print(f"- Latest: {escape_markdown_cell(latest.evaluation_id)} "
+              f"({escape_markdown_cell(latest.model_name)}, dataset {escape_markdown_cell(latest.dataset_name)})")
+        print()
+        print("| Metric | Baseline | Latest | Change |")
+        print("| --- | --- | --- | --- |")
+        for m, b, n, c in rows:
+            print(f"| {escape_markdown_cell(m)} | {b:.4f} | {n:.4f} | {c:+.4f} |")
+        if only_baseline:
+            print()
+            print("Only in the baseline (no change shown): "
+                  + ", ".join(f"{escape_markdown_cell(m)} = {v:.4f}" for m, v in only_baseline.items()))
+        if only_latest:
+            print()
+            print("Only in the latest (no change shown): "
+                  + ", ".join(f"{escape_markdown_cell(m)} = {v:.4f}" for m, v in only_latest.items()))
+        print()
+        print(f"_{_HISTORY_COMPARE_NOTE}_")
+        return
+
+    print(f"History comparison: {baseline.evaluation_id} -> {latest.evaluation_id}")
+    print(f"  Baseline : {baseline.evaluation_id} | {baseline.model_name} | dataset={baseline.dataset_name}")
+    print(f"  Latest   : {latest.evaluation_id} | {latest.model_name} | dataset={latest.dataset_name}")
+    if rows:
+        print("  Metrics  :")
+        for m, b, n, c in rows:
+            print(f"    {m}: baseline={b:.4f} latest={n:.4f} change={c:+.4f}")
+    else:
+        print("  Metrics  : none in common")
+    if only_baseline:
+        print("  Only in baseline: " + ", ".join(f"{m}={v:.4f}" for m, v in only_baseline.items()))
+    if only_latest:
+        print("  Only in latest  : " + ", ".join(f"{m}={v:.4f}" for m, v in only_latest.items()))
+    print(f"  Note: {_HISTORY_COMPARE_NOTE}")
+
+
 def _handle_history(args: argparse.Namespace) -> int:
     if not args.history_action:
-        print("Error: Specify a history action ('list' or 'show').", file=sys.stderr)
+        print("Error: Specify a history action ('list', 'show' or 'compare').", file=sys.stderr)
         return 2
 
     store = ResultHistoryStore(args.store)
@@ -1248,6 +1332,16 @@ def _handle_history(args: argparse.Namespace) -> int:
         print(f"  Scores        : {entry.result_summary}")
         if entry.report_path:
             print(f"  Report Path   : {entry.report_path}")
+        return 0
+
+    if args.history_action == "compare":
+        try:
+            baseline = store.get_entry(args.baseline_id)
+            latest = store.get_entry(args.latest_id)
+        except KeyError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        _print_history_compare(baseline, latest, output_format=args.format)
         return 0
 
     return 2

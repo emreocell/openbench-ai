@@ -139,3 +139,116 @@ def test_history_list_export_empty_prints_header_only(
     assert capsys.readouterr().out.splitlines() == [
         "evaluation_id,timestamp,model,model_version,dataset"
     ]
+
+
+def test_history_compare_text_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from openbench.cli import main
+
+    store = tmp_path / "h.jsonl"
+    _write_history(
+        store,
+        [
+            ("m1", "ds", {"exact_match": 0.5, "f1": 0.25}),
+            ("m1", "ds", {"exact_match": 0.75, "f1": 0.25}),
+        ],
+    )
+    assert main(["history", "compare", "eval_0", "eval_1", "--store", str(store)]) == 0
+    out = capsys.readouterr().out
+    assert "History comparison: eval_0 -> eval_1" in out
+    assert "exact_match: baseline=0.5000 latest=0.7500 change=+0.2500" in out
+    assert "f1: baseline=0.2500 latest=0.2500 change=+0.0000" in out
+    assert "not a significance test" in out
+    assert "openbench analyze" in out
+
+
+def test_history_compare_json_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    import json
+
+    from openbench.cli import main
+
+    store = tmp_path / "h.jsonl"
+    _write_history(
+        store,
+        [("m1", "ds", {"exact_match": 0.5}), ("m2", "ds", {"exact_match": 0.25})],
+    )
+    assert main(["history", "compare", "eval_0", "eval_1", "--store", str(store), "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["baseline"]["evaluation_id"] == "eval_0"
+    assert payload["latest"]["evaluation_id"] == "eval_1"
+    assert payload["metrics"] == [
+        {"metric": "exact_match", "baseline": 0.5, "latest": 0.25, "change": -0.25}
+    ]
+    assert payload["only_in_baseline"] == {}
+    assert payload["only_in_latest"] == {}
+    assert "not a significance test" in payload["note"]
+
+
+def test_history_compare_markdown_format_escapes_cells(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from openbench.cli import main
+
+    store = tmp_path / "h.jsonl"
+    _write_history(
+        store,
+        [("a|b", "ds", {"exact_match": 0.5, "pipe|metric": 0.5}), ("m2", "ds", {"exact_match": 0.75, "pipe|metric": 0.5})],
+    )
+    assert main(["history", "compare", "eval_0", "eval_1", "--store", str(store), "--format", "markdown"]) == 0
+    out = capsys.readouterr().out
+    assert "| Metric | Baseline | Latest | Change |" in out
+    assert "| exact_match | 0.5000 | 0.7500 | +0.2500 |" in out
+    assert r"| pipe\|metric | 0.5000 | 0.5000 | +0.0000 |" in out
+    assert r"a\|b" in out
+    assert "not a significance test" in out
+
+
+def test_history_compare_lists_metrics_only_one_entry_has(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    from openbench.cli import main
+
+    store = tmp_path / "h.jsonl"
+    _write_history(
+        store,
+        [("m1", "ds", {"exact_match": 0.5, "f1": 0.5}), ("m1", "ds", {"exact_match": 0.5, "rouge_l": 0.75})],
+    )
+    assert main(["history", "compare", "eval_0", "eval_1", "--store", str(store)]) == 0
+    out = capsys.readouterr().out
+    assert "Only in baseline: f1=0.5000" in out
+    assert "Only in latest  : rouge_l=0.7500" in out
+    assert "f1: baseline" not in out
+    assert "rouge_l: baseline" not in out
+
+    assert main(["history", "compare", "eval_0", "eval_1", "--store", str(store), "--format", "json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [row["metric"] for row in payload["metrics"]] == ["exact_match"]
+    assert payload["only_in_baseline"] == {"f1": 0.5}
+    assert payload["only_in_latest"] == {"rouge_l": 0.75}
+
+
+def test_history_compare_unknown_id_exits_with_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from openbench.cli import main
+
+    store = tmp_path / "h.jsonl"
+    _write_history(store, [("m1", "ds", {"exact_match": 0.5})])
+    assert main(["history", "compare", "eval_0", "missing", "--store", str(store)]) == 1
+    assert "missing" in capsys.readouterr().err
+    assert main(["history", "compare", "missing", "eval_0", "--store", str(store)]) == 1
+    assert "missing" in capsys.readouterr().err
+
+
+def test_history_compare_entry_with_itself_shows_zero_changes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from openbench.cli import main
+
+    store = tmp_path / "h.jsonl"
+    _write_history(store, [("m1", "ds", {"exact_match": 0.5, "f1": 0.25})])
+    assert main(["history", "compare", "eval_0", "eval_0", "--store", str(store)]) == 0
+    out = capsys.readouterr().out
+    assert "change=+0.0000" in out
+    assert out.count("change=+0.0000") == 2

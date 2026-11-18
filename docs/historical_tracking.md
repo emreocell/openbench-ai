@@ -30,7 +30,17 @@ openbench history list --store results/history.jsonl
 
 # Inspect a specific evaluation run by ID
 openbench history show eval_a1b2c3d4e5f6 --store results/history.jsonl
+
+# Show how every shared metric changed between two recorded evaluations
+# (--format text, json or markdown)
+openbench history compare eval_a1b2c3d4e5f6 eval_f6e5d4c3b2a1 --store results/history.jsonl
 ```
+
+`history compare BASELINE_ID LATEST_ID` prints the baseline score, the latest score and the change
+(latest minus baseline) for every metric both entries have. Metrics that only one entry has are
+listed separately, without a change. An unknown ID is an error (exit code 1). The change is a
+descriptive difference between two recorded results, not a significance test; use
+`openbench analyze` for a paired comparison.
 
 ---
 

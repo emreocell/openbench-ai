@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -32,6 +33,12 @@ from openbench.stats.ranking import _average_ranks, rank_models
 from openbench.stats.tests import mcnemar_exact
 
 FAST = {"resamples": 300, "permutations": 999}
+_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}")
+
+
+def _without_timestamp(text):
+    """Blank the report's 'Generated at' time so two runs a second apart still compare equal."""
+    return _TIMESTAMP.sub("TIMESTAMP", text)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -142,7 +149,7 @@ def test_rank_format_follows_output_extension(tmp_path, capsys, name, expected):
         return
     reference = tmp_path / "reference.out"
     assert main(_rank_args(files, "--format", expected, "--output", str(reference))) == 0
-    assert text == reference.read_text(encoding="utf-8")
+    assert _without_timestamp(text) == _without_timestamp(reference.read_text(encoding="utf-8"))
     assert text.startswith({"html": "<!doctype html>", "csv": "Rank,"}.get(expected, "# OpenBench"))
 
 

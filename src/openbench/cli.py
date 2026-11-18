@@ -694,8 +694,12 @@ def build_parser() -> argparse.ArgumentParser:
     cache_prune_p.add_argument("--dry-run", action="store_true", help="Only report what would be removed.")
     cache_prune_p.add_argument("--cache-dir", type=str, default=None)
 
-    cache_stats_p = cache_subparsers.add_parser("stats", help="Show cache entry count and location.")
+    cache_stats_p = cache_subparsers.add_parser(
+        "stats",
+        help="Show what is in the cache: entries per provider and model, and how old they are.",
+    )
     cache_stats_p.add_argument("--cache-dir", type=str, default=None)
+    cache_stats_p.add_argument("--format", choices=["json", "text"], default="json", help="Output format (default: json).")
 
     # 13. analyze (v0.4.0 new: paired comparison / repeated-run variability of stored results)
     ana_parser = subparsers.add_parser(
@@ -2497,6 +2501,22 @@ def _handle_plugins(args: argparse.Namespace) -> int:
     return 0
 
 
+def _format_cache_stats_text(stats: dict[str, Any]) -> str:
+    """A short readable summary of `ResponseCache.stats()`: one line per provider and model."""
+    lines = [
+        f"Cache: {stats['cache_dir']}",
+        f"Entries: {stats['stored_entries']} ({stats['file_size_bytes']} bytes on disk)",
+        f"Oldest entry: {stats['oldest_cached_at'] or 'unknown'}",
+        f"Newest entry: {stats['newest_cached_at'] or 'unknown'}",
+    ]
+    if stats["unknown_age_entries"]:
+        lines.append(f"Entries with an unreadable cached_at: {stats['unknown_age_entries']}")
+    lines.append("By provider and model:")
+    lines += [f"  {row['provider']} / {row['model']}: {row['entries']}" for row in stats["by_model"]] or ["  (none)"]
+    lines.append(f"This session: {stats['session_hits']} hit(s), {stats['session_misses']} miss(es)")
+    return "\n".join(lines)
+
+
 def _handle_cache(args: argparse.Namespace) -> int:
     """Execute `openbench cache clear|prune|stats`."""
     if not args.cache_action:
@@ -2522,7 +2542,15 @@ def _handle_cache(args: argparse.Namespace) -> int:
             print(f"Kept {result.unknown_age} {unit} with a missing or unreadable cached_at.")
         return 0
     if args.cache_action == "stats":
-        print(json.dumps(cache.stats(), indent=2))
+        try:
+            stats = cache.stats()
+        except OpenBenchError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        if args.format == "text":
+            print(_format_cache_stats_text(stats))
+        else:
+            print(json.dumps(stats, indent=2))
         return 0
     return 2
 

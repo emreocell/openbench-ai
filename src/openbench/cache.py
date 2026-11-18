@@ -401,12 +401,43 @@ class ResponseCache:
             return PruneResult(removed, kept, unknown, dry_run)
 
     def stats(self) -> dict[str, Any]:
-        """Return cache audit summary."""
+        """Return a cache audit summary.
+
+        Besides the entry count and the session hit counters, the summary says what is in the
+        cache and how old it is: ``by_model`` (entry counts per provider and model, sorted by
+        provider, then model), ``oldest_cached_at`` and ``newest_cached_at`` (``None`` when no
+        entry has a readable ``cached_at``), ``unknown_age_entries`` (entries whose
+        ``cached_at`` is unreadable) and ``file_size_bytes`` (``0`` when there is no cache file).
+        Like ``prune``, it never creates the cache directory, and a corrupted cache file raises
+        ``OpenBenchError``.
+        """
         store = self._ensure_loaded()
+        counts: dict[tuple[str, str], int] = {}
+        timestamps: list[tuple[datetime, str]] = []
+        unknown_age = 0
+        for rec in store.values():
+            counts[(rec.provider_name, rec.model_name)] = counts.get((rec.provider_name, rec.model_name), 0) + 1
+            when = _parse_cached_at(rec.cached_at)
+            if when is None:
+                unknown_age += 1
+            else:
+                timestamps.append((when, rec.cached_at))
+        try:
+            file_size = self._index_path.stat().st_size
+        except OSError:
+            file_size = 0
         return {
             "enabled": self.enabled,
             "cache_dir": str(self.cache_dir),
             "stored_entries": len(store),
             "session_hits": self.hits,
             "session_misses": self.misses,
+            "by_model": [
+                {"provider": provider, "model": model, "entries": count}
+                for (provider, model), count in sorted(counts.items())
+            ],
+            "oldest_cached_at": min(timestamps)[1] if timestamps else None,
+            "newest_cached_at": max(timestamps)[1] if timestamps else None,
+            "unknown_age_entries": unknown_age,
+            "file_size_bytes": file_size,
         }

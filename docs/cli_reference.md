@@ -395,11 +395,12 @@ Remove cached responses older than a number of days.
 
 ## `openbench cache stats`
 
-Show cache entry count and location.
+Show what is in the cache: entries per provider and model, and how old they are.
 
 | Argument | Required | Default | Choices | Help |
 | :--- | :---: | :--- | :--- | :--- |
 | `--cache-dir` |  |  |  |  |
+| `--format` |  | `json` | `json`, `text` | Output format (default: json). |
 
 ## `openbench analyze` *(v0.4.0)*
 

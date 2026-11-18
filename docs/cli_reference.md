@@ -219,7 +219,7 @@ v0.5.0: rank several stored runs, repeat groups or evaluation files with uncerta
 | `--seed` |  | `0` |  |  |
 | `--exploratory` |  |  |  | Rank inputs that fail hard compatibility checks (descriptive only). |
 | `--output` |  |  |  |  |
-| `--format` |  | `markdown` | `json`, `markdown`, `csv`, `html` |  |
+| `--format` |  |  | `json`, `markdown`, `csv`, `html` | Report format. Default: chosen from the --output extension (.html/.htm, .json, .csv), otherwise markdown. |
 
 ## `openbench plan`
 

@@ -509,7 +509,12 @@ def build_parser() -> argparse.ArgumentParser:
     rank_parser.add_argument("--seed", type=int, default=0)
     rank_parser.add_argument("--exploratory", action="store_true", help="Rank inputs that fail hard compatibility checks (descriptive only).")
     rank_parser.add_argument("--output", type=str, default=None)
-    rank_parser.add_argument("--format", choices=["json", "markdown", "csv", "html"], default="markdown")
+    rank_parser.add_argument(
+        "--format",
+        choices=["json", "markdown", "csv", "html"],
+        default=None,
+        help="Report format. Default: chosen from the --output extension (.html/.htm, .json, .csv), otherwise markdown.",
+    )
 
     plan_parser = subparsers.add_parser(
         "plan",
@@ -2111,6 +2116,16 @@ def _write_or_print(text: str, output: str | None, label: str) -> None:
         print(text, end="" if text.endswith("\n") else "\n")
 
 
+_OUTPUT_EXTENSION_FORMATS = {".html": "html", ".htm": "html", ".json": "json", ".csv": "csv"}
+
+
+def _format_from_output_extension(output: str | None, supported: tuple[str, ...]) -> str:
+    """Pick a report format from the --output extension; markdown if unknown or unsupported."""
+    suffix = Path(output).suffix.lower() if output else ""
+    chosen = _OUTPUT_EXTENSION_FORMATS.get(suffix)
+    return chosen if chosen in supported else "markdown"
+
+
 def _load_arms(args: argparse.Namespace) -> list[Any]:
     from openbench.paired import ComparisonArm
 
@@ -2146,13 +2161,14 @@ def _handle_rank(args: argparse.Namespace) -> int:
         arms, args.metric, alpha=args.alpha, confidence_level=args.confidence_level, resamples=args.resamples,
         permutations=args.permutations, analysis_seed=args.seed, selected_ids=selected, allow_incompatible=args.exploratory,
     )
-    if args.format == "html":
+    rank_format = args.format or _format_from_output_extension(args.output, ("markdown", "json", "csv", "html"))
+    if rank_format == "html":
         from openbench.html_report import render_html
 
         text = render_html(redact_sensitive_data(payload))
     else:
-        text = render_ranking(redact_sensitive_data(payload), args.format)
-    _write_or_print(text, args.output, f"Ranking ({args.format})")
+        text = render_ranking(redact_sensitive_data(payload), rank_format)
+    _write_or_print(text, args.output, f"Ranking ({rank_format})")
     if payload.get("banner"):
         print(f"Warning: {payload['banner']}", file=sys.stderr)
     return 0
@@ -2362,10 +2378,7 @@ def _handle_dataset_card(args: argparse.Namespace) -> int:
     """`openbench dataset-card` (v0.5.0)."""
     from openbench.datacard import build_card, render_card
 
-    card_format = args.format
-    if card_format is None:
-        suffix = Path(args.output).suffix.lower() if args.output else ""
-        card_format = {".html": "html", ".htm": "html", ".json": "json"}.get(suffix, "markdown")
+    card_format = args.format or _format_from_output_extension(args.output, ("markdown", "json", "html"))
     card = build_card(args.dataset_path)
     _write_or_print(render_card(card, card_format), args.output, f"Dataset card ({card_format})")
     return 0

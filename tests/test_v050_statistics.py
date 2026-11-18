@@ -120,6 +120,49 @@ def test_rank_arms_and_cli(tmp_path, capsys):
     assert "not computed" in capsys.readouterr().err
 
 
+def _rank_args(files, *extra):
+    return ["rank", "--results", *map(str, files), "--metric", "exact_match",
+            "--resamples", "300", "--permutations", "999", *extra]
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [("ranking.html", "html"), ("ranking.HTM", "html"), ("ranking.json", "json"),
+     ("ranking.csv", "csv"), ("ranking.md", "markdown"), ("ranking.markdown", "markdown"),
+     ("ranking.txt", "markdown"), ("ranking", "markdown")],
+)
+def test_rank_format_follows_output_extension(tmp_path, capsys, name, expected):
+    files = _three_files(tmp_path)
+    out = tmp_path / name
+    assert main(_rank_args(files, "--output", str(out))) == 0
+    assert f"Ranking ({expected}) written to: " in capsys.readouterr().out
+    text = out.read_text(encoding="utf-8")
+    if expected == "json":  # the JSON payload carries a timestamp, so check its shape instead
+        assert json.loads(text)["analysis"] == "model_ranking"
+        return
+    reference = tmp_path / "reference.out"
+    assert main(_rank_args(files, "--format", expected, "--output", str(reference))) == 0
+    assert text == reference.read_text(encoding="utf-8")
+    assert text.startswith({"html": "<!doctype html>", "csv": "Rank,"}.get(expected, "# OpenBench"))
+
+
+def test_rank_explicit_format_wins_over_extension(tmp_path, capsys):
+    files = _three_files(tmp_path)
+    out = tmp_path / "ranking.html"
+    assert main(_rank_args(files, "--format", "markdown", "--output", str(out))) == 0
+    assert "Ranking (markdown) written to: " in capsys.readouterr().out
+    assert out.read_text(encoding="utf-8").startswith("# OpenBench AI model ranking")
+    assert main(_rank_args(files, "--format", "csv", "--output", str(tmp_path / "ranking.json"))) == 0
+    assert "Ranking (csv) written to: " in capsys.readouterr().out
+    assert (tmp_path / "ranking.json").read_text(encoding="utf-8").startswith("Rank,")
+
+
+def test_rank_without_output_prints_markdown(tmp_path, capsys):
+    files = _three_files(tmp_path)
+    assert main(_rank_args(files)) == 0
+    assert capsys.readouterr().out.startswith("# OpenBench AI model ranking")
+
+
 def test_rank_refuses_incompatible_inputs_without_exploratory(tmp_path, capsys):
     a, b, _ = _three_files(tmp_path)
     other = write_dataset(tmp_path / "other.jsonl", 30, tweak={"item_002": "changed"})

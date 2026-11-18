@@ -14,6 +14,8 @@ openbench rank --runs run_<a> run_<b> grp_<c> run_<d> --metric exact_match --for
 openbench rank --results a.json b.json c.json --metric f1 --output ranking.json --format json
 ```
 
+Without `--format`, the format follows the `--output` extension: `.html`/`.htm` gives HTML, `.json` gives JSON, `.csv` gives CSV, and anything else (or printing to the terminal) gives Markdown. An explicit `--format` always wins.
+
 Output, one row per model:
 
 | Column | Meaning |
